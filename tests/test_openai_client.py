@@ -53,7 +53,30 @@ def test_explain_term_sends_term_model_and_example_count():
     assert call["model"] == "test-model"
     assert "take off" in call["input"]
     assert "1 example" in call["input"]
+    assert "Return only a valid JSON object" in call["input"]
     assert call["text"]["format"]["type"] == "json_schema"
+
+
+def test_explain_term_extracts_final_dictionary_json_from_reasoning_text():
+    client = FakeClient(
+        FakeResponse(
+            'Analysis included a draft: {"term":"draft"}. '
+            '</think>{"term":"roll out","meaning":"To introduce something.",'
+            '"examples":["The company will roll out the update."]}'
+        )
+    )
+
+    result = explain_term(
+        "roll out",
+        model="test-model",
+        examples_count=1,
+        api_key="test-key",
+        client=client,
+    )
+
+    assert result.term == "roll out"
+    assert result.meaning == "To introduce something."
+    assert result.examples == ["The company will roll out the update."]
 
 
 def test_explain_term_requires_api_key():

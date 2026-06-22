@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
+from pathlib import Path
 import sys
 
+from e2e_cli.cache import DictionaryCache, default_cache_path, lookup_with_cache
+from e2e_cli.env import load_dotenv
 from e2e_cli.openai_client import DEFAULT_MODEL, DictionaryLookupError, explain_term
 from e2e_cli.render import DictionaryResult, render_json, render_text
 
@@ -36,6 +39,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="OpenAI-compatible API base URL (or set OPENAI_BASE_URL)",
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Skip cache reads, writes, and query counting for this lookup",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Refresh a cached lookup by calling the model and updating the cache",
+    )
+    parser.add_argument(
+        "--cache-path",
+        type=Path,
+        default=None,
+        help="Path to the SQLite cache file",
+    )
     return parser
 
 
@@ -44,6 +63,7 @@ def main(
     *,
     lookup: LookupFn | None = explain_term,
 ) -> int:
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -59,12 +79,24 @@ def main(
     active_lookup = lookup if lookup is not None else explain_term
 
     try:
-        result = active_lookup(
-            term,
-            model=args.model,
-            examples_count=args.examples,
-            base_url=args.base_url,
-        )
+        if args.no_cache:
+            result = active_lookup(
+                term,
+                model=args.model,
+                examples_count=args.examples,
+                base_url=args.base_url,
+            )
+        else:
+            cache_path = args.cache_path if args.cache_path is not None else default_cache_path()
+            result = lookup_with_cache(
+                term,
+                model=args.model,
+                examples_count=args.examples,
+                base_url=args.base_url,
+                lookup=active_lookup,
+                cache=DictionaryCache(cache_path),
+                refresh=args.refresh,
+            )
     except DictionaryLookupError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
